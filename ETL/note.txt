@@ -1,0 +1,2 @@
+Es necesario crear un archivo .env  con el contenido:
+HASH_SALT="texto_secreto"
