@@ -194,6 +194,7 @@ dim_origen = dim_origen.withColumn(
     "id_origen",
     row_number().over(w_ori)
 )
+# ================== OBTENCION DE INGRESOS Y EGRESOS ==================
 
 query_ingresos_totales = """
 (

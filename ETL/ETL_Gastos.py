@@ -1,6 +1,8 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sha2, concat_ws, lit
+from pyspark.sql.functions import col, sha2, concat_ws, lit, udf, row_number
+from pyspark.sql.window import Window
 from pyspark.sql.types import StringType
+
 import pandas as pd
 
 from hash import generar_hash
@@ -47,6 +49,9 @@ spark = (
     )
     .getOrCreate()
 )
+
+# Extracción de datos
+# ---------------------------------------------------
 # CSV
 df_csv = (
     spark.read
@@ -76,51 +81,108 @@ mysql_props = {
 }
 
 
+# Transformaciones 
+# ---------------------------------------------------
 
-# ================== TEST DE CONEXIONES Y LECTURA ==================
+generar_hash_udf = udf(generar_hash, StringType())
 
-print("\n=== Probando lectura de CSV ===")
-try:
-    df_csv.show(5)
-    print(f"Filas CSV: {df_csv.count()}")
-except Exception as e:
-    print("Error leyendo CSV:", e)
+df_csv = df_csv.withColumn(
+    "identifier",
+    generar_hash_udf(col("nombre"), col("apellido")))
 
+# ================== DIMENSION UNIVERSIDAD ==================
+dim_universidad = (
+    df_csv
+    .select("nombre_universidad", "carrera")
+    .dropDuplicates()
+)
 
-print("\n=== Probando lectura de XLSX ===")
-try:
-    df_xlsx.show(5)
-    print(f"Filas XLSX: {df_xlsx.count()}")
-except Exception as e:
-    print("Error leyendo XLSX:", e)
+w_uni = Window.orderBy("nombre_universidad", "carrera")
 
+dim_universidad = dim_universidad.withColumn(
+    "id_universidad",
+    row_number().over(w_uni)
+)
+# ================== DIMENSION PERIODO ==================
+dim_periodo = (
+    df_csv
+    .select("semestre", "año", "etiqueta_periodo")
+    .dropDuplicates()
+)
 
-print("\n=== Probando conexión a PostgreSQL ===")
-try:
-    # Cambia 'public.tu_tabla_postgres' por una tabla real de tu BD
-    df_pg_test = spark.read.jdbc(
-        url=pg_url,
-        table="public.estudiante",   # <-- AJUSTA ESTO
-        properties=pg_props
+w_per = Window.orderBy("semestre", "año", "etiqueta_periodo")
+
+dim_periodo = dim_periodo.withColumn(
+    "id_periodo",
+    row_number().over(w_per)
+)
+
+# ================== DIMENSION ORIGEN ==================
+dim_origen = (
+    df_csv
+    .select("ciudad", "provincia")
+    .dropDuplicates()
+)
+
+w_ori = Window.orderBy("ciudad", "provincia")
+
+dim_origen = dim_origen.withColumn(
+    "id_origen",
+    row_number().over(w_ori)
+)
+
+# ================== DIMENSION ESTUDIANTE ==================
+
+# creamos un identificador único para el estudiante basado en nombre+apellido
+df_mysql_estudiante = spark.read.jdbc(
+    url=mysql_url,
+    table="estudiante",
+    properties=mysql_props
+)
+
+dim_estudiante = (
+    df_csv.alias("c")
+    .join(
+        df_mysql_estudiante
+        .select("nombre", "apellido", "becado")
+        .alias("m"),
+        on=["nombre", "apellido"],
+        how="left"
     )
-    df_pg_test.show(5)
-    print(f"Filas Postgres: {df_pg_test.count()}")
-except Exception as e:
-    print("Error conectando/leyendo Postgres:", e)
-
-
-print("\n=== Probando conexión a MySQL ===")
-try:
-    # Cambia 'tu_tabla_mysql' por una tabla real de tu BD
-    df_mysql_test = spark.read.jdbc(
-        url=mysql_url,
-        table="ingreso",            # <-- AJUSTA ESTO
-        properties=mysql_props
+    .select(
+        col("identifier").alias("id_estudiante"),
+        "edad",
+        "genero",
+        "modalidad",
+        "becado"
     )
-    df_mysql_test.show(5)
-    print(f"Filas MySQL: {df_mysql_test.count()}")
-except Exception as e:
-    print("Error conectando/leyendo MySQL:", e)
+    .dropDuplicates()
+)
 
+map_estudiante = (
+    df_csv
+    .select("identifier", "nombre", "apellido")
+    .dropDuplicates()
+    .withColumnRenamed("identifier", "id_estudiante")
+)
 
-print("\n=== FIN DE PRUEBAS ===")
+#=================== DIMENSION CATEGORIA GASTOS ==================
+df_mysql_gasto = spark.read.jdbc(
+    url=mysql_url,
+    table="gastos",
+    properties=mysql_props
+)
+
+dim_categoria_gasto = (
+    df_mysql_gasto
+    .select("categoria")
+    .dropDuplicates()
+)
+
+w_cat = Window.orderBy("categoria")
+dim_categoria_gasto = dim_categoria_gasto.withColumn(
+    "id_categoria_gasto",
+    row_number().over(w_cat)
+)
+
+# ================== OBTENCIÖN EGRESOS ==================
