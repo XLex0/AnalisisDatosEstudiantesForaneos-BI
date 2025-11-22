@@ -1,2 +1,23 @@
 Es necesario crear un archivo .env  con el contenido:
 HASH_SALT="texto_secreto"
+
+# PostgreSQL
+PG_HOST="{host}"
+PG_PORT="{port}"
+PG_DB="{database}"
+PG_USER="{user}"
+PG_PASSWORD="{pass}"
+
+
+# MySQL
+MY_HOST="{host}"
+MY_PORT="{port}"
+MY_DB="{database}"
+MY_USER="{user}"
+MY_PASSWORD="{pass}"
+
+# ClickHouse
+CH_HOST="{host}"
+CH_PORT="{port}"
+CH_USER="{user}"
+CH_PASSWORD="{pass}"
